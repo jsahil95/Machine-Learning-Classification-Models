@@ -1,0 +1,254 @@
+---
+title: "Case Study 2"
+author: "Sahil Jain, Jacques Sham, Mina Chan, Charles Sui"
+date: "April 6, 2018"
+output: html_document
+---
+
+Loading Libraries 
+
+```{r}
+library(tree)
+library(tidyverse)
+library(magrittr)
+library(ISLR)
+library(randomForest)
+library(MASS)
+library(caret)
+library(survival)
+library(gbm)
+library(TSA)
+library(ipred)
+library(rpart)
+library(TH.data)
+```
+
+Loading training data 
+
+```{r}
+train <- read.csv("/Users/sahiljain/Desktop/Spring 2018/Statistical Learning/OnlineNewsPopularityTraining.csv")
+test <- read.csv("/Users/sahiljain/Desktop/Spring 2018/Statistical Learning/OnlineNewsPopularityTest.csv")
+```
+
+Omitting NA's 
+
+```{r}
+dataTrain <- na.omit(train)
+dataTest <- na.omit(test)
+```
+
+Omitting extra variables 
+
+```{r}
+NewData_train <- dataTrain[,-c(1,2,61)]
+NewData_test <- dataTest[,-c(1,2,61)]
+```
+
+Classification data variable.
+
+```{r}
+train_tree <- NewData_train
+test_tree <- NewData_test
+```
+
+```{r}
+train_tree$popular <- factor(train_tree$popular)
+test_tree$popular <- factor(test_tree$popular)
+
+data.train.class <- train_tree$popular
+data.test.class <- test_tree$popular
+
+set.seed(1)
+data.train.upsample <- upSample(train_tree, data.train.class, T)$x
+```
+
+(A) Build classifiers for this data set using the tree based methods that we’ve learned in class. In particular, build classifiers on the training data and assess the performance of each of the following methods on the test data (available on Canvas)
+
+(I) Classification tree
+
+```{r}
+tree.train <- tree(popular ~ ., data = data.train.upsample)
+summary(tree.train)
+```
+
+```{r}
+plot(tree.train)
+text(tree.train, pretty = 0)
+```
+
+Error Classification 
+
+```{r}
+tree.pred <- predict(tree.train, NewData_train, type = "class")
+table(tree.pred, data.train.class)
+mean(tree.pred == data.train.class)
+```
+
+Cross Validation 
+
+```{r}
+cv.pop <- cv.tree(tree.train, FUN = prune.misclass)
+cv.pop
+```
+
+Plot 
+
+```{r}
+par(mfrow = c(1, 2))
+plot(cv.pop$size, cv.pop$dev, type = "b")
+plot(cv.pop$k, cv.pop$dev, type = "b")
+```
+
+Pruning the tree
+
+```{r}
+par(mfrow = c(1,1))
+prune.pop <- prune.misclass(tree.train, best = cv.pop$size[which.min(cv.pop$dev)])
+plot(prune.pop)
+text(prune.pop, pretty = 0)
+```
+
+Testing our model on held out test set
+
+```{r}
+prune.pred <- predict(prune.pop, NewData_test, type = "class")
+table(prune.pred, data.test.class)
+mean(prune.pred == data.test.class)
+```
+
+So from tree classification we can see that our MSPE for training set was .40 where as our MSPE for our held out test set was .229 which is slightly better than training set. From this tree we can see that variables weekend and Kw_max_avg are very important variables. 
+
+(II) Bagging
+
+```{r}
+gbag <- bagging(popular ~., data = NewData_train, coob = TRUE)
+print(gbag)
+```
+
+Prediction on training set and measuring MSPE 
+
+```{r}
+yhat <- predict(gbag, newdata = NewData_train)
+bagging_train_MSPE <- sqrt(mean((yhat - NewData_train$popular)^2))
+bagging_train_MSPE
+```
+
+Here, from our training set out MSPE is 0.3930 which is quite small, now we will see our MSPE and prediction on the held out test set. 
+
+Prediction and MSPE on held out test set 
+
+```{r}
+gbag_test <- bagging(popular ~., data = NewData_test, coob = TRUE)
+print(gbag_test)
+```
+
+```{r}
+yhat_test <- predict(gbag_test, newdata = NewData_test)
+bagging_test_MPSE <- sqrt(mean((yhat_test - NewData_test$popular)^2))
+bagging_test_MPSE
+```
+We can see that out MSPE from our held out test set is 0.3938, which is slightly higher than our MSPE on training set.
+
+(III) Random Forest
+
+We will be running our Random Forest over 1000 trees and all 58 predictors. 
+
+```{r}
+set.seed(1)
+bag.popular <- randomForest(popular ~., data = NewData_train, mtry = 58, importance = TRUE, ntrees = 1000)
+bag.popular
+```
+
+Prediction on Training set and measuring MSPE
+
+```{r}
+yhat.bag <- predict(bag.popular, newdata = NewData_train)
+sqrt(mean((yhat.bag - NewData_train$popular)^2))
+```
+
+As we can see our MSPE is incredibly small close to 0.16 predictors. Now we will investigate the performance on a held out test set. 
+
+```{r}
+set.seed(1)
+rf.popular <- randomForest(popular ~ ., data = NewData_test, mtry = 58, importance = TRUE)
+```
+
+```{r}
+yhat.rf <- predict(rf.popular, newdata = NewData_test)
+sqrt(mean((yhat.rf - NewData_test$popular)^2))
+```
+
+From our held out test set our MSPE turns out to be 0.1625 which in slightly less than our training set
+
+We will now see the imprtance of each variable in the random forest. 
+
+Calculating the importance of each predictor 
+```{r}
+importance(rf.popular)
+```
+
+Too much information, now we will plot the importance of each variable. 
+
+Plotting the importance measures of each variable.
+
+```{r}
+varImpPlot(rf.popular)
+```
+
+From the above result we can clearly see that variable kw_avg_avg is by far the most important variable in the random forest.
+
+
+(IV) Boosting - Boosting is very similar to randomForests
+
+```{r}
+boost <- gbm(popular ~., data = NewData_train, distribution = 'gaussian', n.trees = 5000, interaction.depth = 4)
+summary(boost)
+```
+
+Clearly, we can see that kw_avg_avg is by far the most important variable. Now we can look at the plot of this variable.
+
+```{r}
+plot(boost, i = 'kw_avg_avg')
+```
+
+Now we will predict our training set and measure training MSPE
+
+```{r}
+boost.train <- predict(boost, newdata = NewData_train, n.trees = 5000)
+sqrt(mean((boost.train - NewData_train$popular)^2))
+```
+
+Using boosting we can clearly see that our MSPE is incredibly small and close to 0.37 predictors. Now we will investigate the performance on a held out test set. 
+
+Appling our boosted model to predit the test set 
+
+```{r}
+boost.pred <- predict(boost, NewData_test, n.trees = 5000)
+sqrt(mean((boost.pred - NewData_test$popular)^2))
+```
+
+From our held out test set our MSPE turns out to be 0.393 which in slightly higher than our training set
+
+
+(B) What is the MSPE for each of your fitted models? Compare and contrast between models and these ensemble-based models with the classification models that you fit in Homework 3. What are the advantages and Disadvantages of using these ensemble methods ?
+
+MSPE for each fitted models for test and training set is : 
+
+Classification Tree : 
+Training MSPE : .40 
+Test MSPE : .229
+
+Bagging : 
+Training MSPE : 0.3918575
+Test MSPE : 0.3930174
+
+Random Forests : 
+Training MSPE : 0.1650788
+Test MSPE : 0.1625907
+
+Boosting : 
+Training MSPE : 0.3714702
+Test MSPE : 0.3928828
+
+These ensemble methods are somewhat similar to methods like K-NN, LDA, QDA, Logistic regression and Naive Bayes Classifier. Just like these methods, ensemble based methods also take MSPE into account to predict the popularity of the website, however ensemble methods does not gives the accuracy of the model but only MSPE where as classification models gives us solid accuracy scores which tells a whole lot of story about the data. Advantages of these ensemle methods is this that it clearly tells the most important variable that is going to affect the popularity of a particular website which helps in only focusing on few important variables. However one of the biggest drawbacks of these ensemble based methods is this that they wont tell how accurate these models are. For instance, K-NN will tell about how accurate our model is in predicting the popularity of the website where as a classification tree will only look at important varibales and make decisions based solely on those facts. 
+
